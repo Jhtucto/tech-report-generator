@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useIsMobile } from "@/hooks/use-mobile";
 import EquipmentInfoForm from "./forms/EquipmentInfoForm";
 import ProjectInfoForm from "./forms/ProjectInfoForm";
 import ActivitiesForm from "./forms/ActivitiesForm";
@@ -21,63 +24,149 @@ const FORM_STEPS = [
   "Vista Previa"
 ];
 
+const LOCAL_STORAGE_KEY = "report_form_data";
+
 const ReportForm = () => {
   const [currentStep, setCurrentStep] = useState(0);
+  const [activeTab, setActiveTab] = useState("0");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [reportLinks, setReportLinks] = useState<{ link_informe?: string; link_pdf?: string }>({});
+  const isMobile = useIsMobile();
   
-  const [formData, setFormData] = useState({
-    // Project info
-    cliente: "",
-    fecha: "",
-    proyecto: "",
-    responsable: "",
-    referencia_equipo: "",
+  const [formData, setFormData] = useState(() => {
+    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData);
+        return {
+          ...parsedData,
+          fotosMeta: [],
+          fotos: []
+        };
+      } catch (error) {
+        console.error("Error loading saved data:", error);
+      }
+    }
     
-    // Equipment info
-    marca: "",
-    modelo: "",
-    serie: "",
-    dimensiones: "",
-    torque: "",
-    aceite: "",
-    velocidad: "",
-    
-    // Other sections
-    resumen: "",
-    actividades: [{ fecha: "", descripcion: "" }],
-    hallazgos: "",
-    recomendaciones: "",
-    fotos: [] as File[],
-    fotosMeta: [] as { file: File; etiqueta: "antes" | "durante" | "despues"; comentario: string }[],
+    return {
+      cliente: "",
+      fecha: "",
+      proyecto: "",
+      responsable: "",
+      referencia_equipo: "",
+      
+      marca: "",
+      modelo: "",
+      serie: "",
+      dimensiones: "",
+      torque: "",
+      aceite: "",
+      velocidad: "",
+      
+      resumen: "",
+      actividades: [{ fecha: "", descripcion: "" }],
+      hallazgos: "",
+      recomendaciones: "",
+      fotos: [] as File[],
+      fotosMeta: [] as { file: File; etiqueta: "antes" | "durante" | "despues"; comentario: string }[],
+    };
   });
 
   const updateFormData = (data: Partial<typeof formData>) => {
-    setFormData(prev => ({ ...prev, ...data }));
+    const newFormData = { ...formData, ...data };
+    setFormData(newFormData);
+    
+    const dataToSave = { ...newFormData };
+    delete dataToSave.fotos;
+    delete dataToSave.fotosMeta;
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    setCurrentStep(parseInt(value));
   };
 
   const handleNext = () => {
-    setCurrentStep(prev => Math.min(prev + 1, FORM_STEPS.length - 1));
+    if (!validateCurrentStep()) {
+      return;
+    }
+    
+    const nextStep = Math.min(currentStep + 1, FORM_STEPS.length - 1);
+    setCurrentStep(nextStep);
+    setActiveTab(nextStep.toString());
   };
 
   const handlePrev = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 0));
+    const prevStep = Math.max(currentStep - 1, 0);
+    setCurrentStep(prevStep);
+    setActiveTab(prevStep.toString());
+  };
+
+  const validateCurrentStep = () => {
+    switch (currentStep) {
+      case 0:
+        if (!formData.cliente || !formData.fecha || !formData.proyecto || !formData.responsable) {
+          toast({
+            title: "Campos requeridos",
+            description: "Por favor complete todos los campos obligatorios.",
+            variant: "destructive",
+          });
+          return false;
+        }
+        break;
+      case 1:
+        if (!formData.marca || !formData.modelo || !formData.serie) {
+          toast({
+            title: "Campos requeridos",
+            description: "Por favor complete los campos obligatorios (marca, modelo y número de serie).",
+            variant: "destructive",
+          });
+          return false;
+        }
+        break;
+      case 2:
+        if (formData.actividades.some(act => !act.fecha || !act.descripcion)) {
+          toast({
+            title: "Actividades incompletas",
+            description: "Por favor complete todas las actividades o elimine las vacías.",
+            variant: "destructive",
+          });
+          return false;
+        }
+        break;
+      case 3:
+        if (!formData.hallazgos) {
+          toast({
+            title: "Hallazgos requeridos",
+            description: "Por favor ingrese los hallazgos técnicos.",
+            variant: "destructive",
+          });
+          return false;
+        }
+        break;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
+    if (!validateCurrentStep()) {
+      return;
+    }
+    
     setIsSubmitting(true);
+    setUploadProgress(0);
     
     try {
       const formDataToSend = new FormData();
       
-      // Add all text data as JSON
       const textData = {...formData};
       delete textData.fotos;
       delete textData.fotosMeta;
       
       formDataToSend.append("data", JSON.stringify(textData));
       
-      // Add each photo with metadata
       formData.fotosMeta.forEach((photoMeta, index) => {
         formDataToSend.append(`foto_${index}`, photoMeta.file);
         formDataToSend.append(`foto_${index}_meta`, JSON.stringify({
@@ -86,25 +175,59 @@ const ReportForm = () => {
         }));
       });
       
-      // Example webhook URL - this should be configurable or set in environment variables
       const webhookUrl = "https://your-n8n-webhook-url.com";
       
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        body: formDataToSend,
-      });
+      const xhr = new XMLHttpRequest();
       
-      if (!response.ok) {
-        throw new Error("Error al enviar el informe");
-      }
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(progress);
+        }
+      };
       
-      const responseData = await response.json();
-      setReportLinks(responseData);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const responseData = JSON.parse(xhr.responseText);
+            setReportLinks(responseData);
+            
+            toast({
+              title: "Informe generado con éxito",
+              description: "Se han generado los enlaces a su informe",
+            });
+          } catch (error) {
+            console.error("Error parsing response:", error);
+            toast({
+              title: "Error en la respuesta",
+              description: "El servidor respondió, pero hubo un problema al procesar la respuesta.",
+              variant: "destructive",
+            });
+          }
+        } else {
+          console.error("Server error:", xhr.statusText);
+          toast({
+            title: `Error ${xhr.status}`,
+            description: "Hubo un problema al generar el informe. Por favor intente nuevamente.",
+            variant: "destructive",
+          });
+        }
+        setIsSubmitting(false);
+      };
       
-      toast({
-        title: "Informe generado con éxito",
-        description: "Se han generado los enlaces a su informe",
-      });
+      xhr.onerror = () => {
+        console.error("Network error");
+        toast({
+          title: "Error de conexión",
+          description: "No se pudo conectar con el servidor. Verifique su conexión a internet.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+      };
+      
+      xhr.open("POST", webhookUrl);
+      xhr.send(formDataToSend);
+      
     } catch (error) {
       console.error("Error submitting form:", error);
       toast({
@@ -112,7 +235,6 @@ const ReportForm = () => {
         description: "Hubo un problema al generar el informe. Por favor intente nuevamente.",
         variant: "destructive",
       });
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -139,57 +261,81 @@ const ReportForm = () => {
   };
 
   const isLastStep = currentStep === FORM_STEPS.length - 1;
-  const isPreviewStep = currentStep === 6;
 
   return (
     <div className="w-full max-w-4xl mx-auto">
-      <FormProgress steps={FORM_STEPS} currentStep={currentStep} />
+      {!isMobile && <FormProgress steps={FORM_STEPS} currentStep={currentStep} />}
       
-      <Card className="mt-6 p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">{FORM_STEPS[currentStep]}</h2>
-          <p className="text-gray-500 mt-1">
-            {currentStep === 0 && "Ingrese la información general del proyecto"}
-            {currentStep === 1 && "Ingrese los datos técnicos del equipo"}
-            {currentStep === 2 && "Detalle las actividades realizadas por fecha"}
-            {currentStep === 3 && "Describa los hallazgos técnicos encontrados"}
-            {currentStep === 4 && "Suba fotografías del proceso"}
-            {currentStep === 5 && "Agregue recomendaciones y próximos pasos"}
-            {currentStep === 6 && "Verifique la información antes de generar el informe"}
-          </p>
-        </div>
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
+        <TabsList className="grid grid-cols-7 w-full">
+          {FORM_STEPS.map((step, index) => (
+            <TabsTrigger 
+              key={index} 
+              value={index.toString()}
+              className={isMobile ? "text-xs py-1" : ""}
+            >
+              {isMobile ? `${index + 1}` : step}
+            </TabsTrigger>
+          ))}
+        </TabsList>
         
-        {renderFormStep()}
-        
-        <div className="flex justify-between mt-8">
-          {currentStep > 0 && (
-            <Button 
-              variant="outline" 
-              onClick={handlePrev}
-              disabled={isSubmitting}
-            >
-              Anterior
-            </Button>
-          )}
-          
-          {!isLastStep ? (
-            <Button 
-              className="ml-auto" 
-              onClick={handleNext}
-            >
-              Siguiente
-            </Button>
-          ) : (
-            <Button 
-              className="ml-auto bg-blue-600 hover:bg-blue-700" 
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Enviando..." : "Generar Informe"}
-            </Button>
-          )}
-        </div>
-      </Card>
+        {FORM_STEPS.map((step, index) => (
+          <TabsContent key={index} value={index.toString()}>
+            <Card className="p-6">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-800">{FORM_STEPS[index]}</h2>
+                <p className="text-gray-500 mt-1">
+                  {index === 0 && "Ingrese la información general del proyecto"}
+                  {index === 1 && "Ingrese los datos técnicos del equipo"}
+                  {index === 2 && "Detalle las actividades realizadas por fecha"}
+                  {index === 3 && "Describa los hallazgos técnicos encontrados"}
+                  {index === 4 && "Suba fotografías del proceso"}
+                  {index === 5 && "Agregue recomendaciones y próximos pasos"}
+                  {index === 6 && "Verifique la información antes de generar el informe"}
+                </p>
+              </div>
+              
+              {renderFormStep()}
+              
+              {isSubmitting && (
+                <div className="mt-4 mb-4">
+                  <p className="text-sm text-gray-500 mb-2">Enviando datos... {uploadProgress}%</p>
+                  <Progress value={uploadProgress} className="w-full" />
+                </div>
+              )}
+              
+              <div className="flex justify-between mt-8">
+                {index > 0 && (
+                  <Button 
+                    variant="outline" 
+                    onClick={handlePrev}
+                    disabled={isSubmitting}
+                  >
+                    Anterior
+                  </Button>
+                )}
+                
+                {!isLastStep ? (
+                  <Button 
+                    className="ml-auto" 
+                    onClick={handleNext}
+                  >
+                    Siguiente
+                  </Button>
+                ) : (
+                  <Button 
+                    className="ml-auto bg-blue-600 hover:bg-blue-700" 
+                    onClick={handleSubmit}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Enviando..." : "Generar Informe"}
+                  </Button>
+                )}
+              </div>
+            </Card>
+          </TabsContent>
+        ))}
+      </Tabs>
     </div>
   );
 };
