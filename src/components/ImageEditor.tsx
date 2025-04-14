@@ -258,7 +258,7 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
         canvas.add(arrowHead2);
         
         const group = new fabric.Group([arrow, arrowHead1, arrowHead2], {
-          selectable: mode === "select",
+          selectable: isModeActive("select"),
         });
         
         canvas.remove(arrow);
@@ -295,7 +295,7 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
       canvas.off('mouse:move');
       canvas.off('mouse:up');
     };
-  }, [canvas, mode, color, textInput]);
+  }, [canvas, mode, color, textInput, isModeActive]);
   
   const saveToHistory = () => {
     if (!canvas) return;
