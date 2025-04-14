@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import { fabric } from "fabric";
 import { Button } from "@/components/ui/button";
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Input } from "@/components/ui/input";
+import { isInEnum } from "./ImageEditorUtils";
 
 interface ImageEditorProps {
   imageFile: File;
@@ -22,7 +22,8 @@ interface ImageEditorProps {
   onCancel: () => void;
 }
 
-type EditorMode = "select" | "rectangle" | "arrow" | "text" | "circle";
+const EDITOR_MODES = ["select", "rectangle", "arrow", "text", "circle"] as const;
+type EditorMode = typeof EDITOR_MODES[number];
 
 const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,7 +34,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   
-  // Initialize canvas
   useEffect(() => {
     if (!canvasRef.current) return;
     
@@ -50,7 +50,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     };
   }, []);
   
-  // Load image onto canvas
   useEffect(() => {
     if (!canvas || !imageFile) return;
     
@@ -59,16 +58,13 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
       if (!event.target?.result) return;
       
       fabric.Image.fromURL(event.target.result.toString(), (img) => {
-        // Adjust image to fit canvas while maintaining aspect ratio
         const canvasWidth = canvas.width || 800;
         const canvasHeight = canvas.height || 600;
         
-        // Calculate scaling factor to fit image within canvas
         const scaleX = canvasWidth / img.width!;
         const scaleY = canvasHeight / img.height!;
         const scale = Math.min(scaleX, scaleY);
         
-        // Set image scale and center it
         img.scale(scale);
         img.set({
           left: (canvasWidth - img.width! * scale) / 2,
@@ -77,12 +73,10 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
           evented: false,
         });
         
-        // Clear canvas and add image
         canvas.clear();
         canvas.add(img);
         canvas.renderAll();
         
-        // Save initial state to history
         saveToHistory();
       });
     };
@@ -90,24 +84,19 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     reader.readAsDataURL(imageFile);
   }, [canvas, imageFile]);
   
-  // Handle mode changes
   useEffect(() => {
     if (!canvas) return;
     
-    // Set selection mode
     canvas.selection = mode === "select";
     
-    // Make objects selectable only in select mode
     canvas.forEachObject((obj) => {
       if (obj.type !== 'image') {
         obj.selectable = mode === "select";
       }
     });
     
-    // Disable drawing modes
     canvas.isDrawingMode = false;
     
-    // Attach/detach mouse event handlers based on mode
     canvas.off('mouse:down');
     
     if (mode === "rectangle") {
@@ -235,7 +224,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
         
         const pointer = canvas.getPointer(opt.e);
         
-        // Add arrow head
         const dx = pointer.x - startPoint.x;
         const dy = pointer.y - startPoint.y;
         const angle = Math.atan2(dy, dx);
@@ -269,7 +257,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
         canvas.add(arrowHead1);
         canvas.add(arrowHead2);
         
-        // Group the arrow parts
         const group = new fabric.Group([arrow, arrowHead1, arrowHead2], {
           selectable: mode === "select",
         });
@@ -299,7 +286,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
         canvas.renderAll();
         saveToHistory();
         
-        // Reset to select mode after adding text
         setMode("select");
       });
     }
@@ -311,13 +297,11 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     };
   }, [canvas, mode, color, textInput]);
   
-  // Save current canvas state to history
   const saveToHistory = () => {
     if (!canvas) return;
     
     const json = JSON.stringify(canvas.toJSON());
     
-    // If we're not at the end of the history array, truncate it
     if (historyIndex < history.length - 1) {
       setHistory(prev => prev.slice(0, historyIndex + 1));
     }
@@ -326,7 +310,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     setHistoryIndex(prev => prev + 1);
   };
   
-  // Undo
   const handleUndo = () => {
     if (!canvas || historyIndex <= 0) return;
     
@@ -339,7 +322,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     });
   };
   
-  // Redo
   const handleRedo = () => {
     if (!canvas || historyIndex >= history.length - 1) return;
     
@@ -352,7 +334,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     });
   };
   
-  // Delete selected object
   const handleDelete = () => {
     if (!canvas) return;
     
@@ -364,7 +345,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     }
   };
   
-  // Save edited image
   const handleSave = () => {
     if (!canvas) return;
     
@@ -376,7 +356,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
       quality: 0.8
     });
     
-    // Convert data URL to Blob
     fetch(dataURL)
       .then(res => res.blob())
       .then(blob => {
@@ -385,6 +364,10 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
       .catch(err => {
         console.error("Error saving image:", err);
       });
+  };
+  
+  const isModeActive = (currentMode: string): boolean => {
+    return isInEnum(currentMode, EDITOR_MODES) && mode === currentMode;
   };
   
   return (
