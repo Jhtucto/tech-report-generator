@@ -1,9 +1,11 @@
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { FileText, RefreshCw } from "lucide-react";
 import EquipmentInfoForm from "./forms/EquipmentInfoForm";
 import ProjectInfoForm from "./forms/ProjectInfoForm";
 import ActivitiesForm from "./forms/ActivitiesForm";
@@ -104,6 +106,16 @@ const ReportForm = () => {
     setActiveTab(prevStep.toString());
   };
 
+  const handleStepClick = (stepIndex: number) => {
+    // Check if we're trying to jump ahead and validate current step first
+    if (stepIndex > currentStep && !validateCurrentStep()) {
+      return;
+    }
+    
+    setCurrentStep(stepIndex);
+    setActiveTab(stepIndex.toString());
+  };
+
   const validateCurrentStep = () => {
     switch (currentStep) {
       case 0:
@@ -148,6 +160,13 @@ const ReportForm = () => {
         break;
     }
     return true;
+  };
+
+  const resetForm = () => {
+    if (window.confirm("¿Está seguro que desea reiniciar el formulario? Se perderán todos los datos ingresados.")) {
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      window.location.reload();
+    }
   };
 
   const handleSubmit = async () => {
@@ -225,8 +244,11 @@ const ReportForm = () => {
         setIsSubmitting(false);
       };
       
-      xhr.open("POST", webhookUrl);
-      xhr.send(formDataToSend);
+      // This timeout is to ensure the document is ready before generating PDF
+      setTimeout(() => {
+        xhr.open("POST", webhookUrl);
+        xhr.send(formDataToSend);
+      }, 1000);
       
     } catch (error) {
       console.error("Error submitting form:", error);
@@ -264,7 +286,13 @@ const ReportForm = () => {
 
   return (
     <div className="w-full max-w-4xl mx-auto">
-      {!isMobile && <FormProgress steps={FORM_STEPS} currentStep={currentStep} />}
+      {!isMobile && (
+        <FormProgress 
+          steps={FORM_STEPS} 
+          currentStep={currentStep} 
+          onStepClick={handleStepClick}
+        />
+      )}
       
       <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
         <TabsList className="grid grid-cols-7 w-full">
@@ -305,13 +333,22 @@ const ReportForm = () => {
               )}
               
               <div className="flex justify-between mt-8">
-                {index > 0 && (
+                {index > 0 ? (
                   <Button 
                     variant="outline" 
                     onClick={handlePrev}
                     disabled={isSubmitting}
                   >
                     Anterior
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={resetForm}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Reiniciar formulario
                   </Button>
                 )}
                 
@@ -323,13 +360,33 @@ const ReportForm = () => {
                     Siguiente
                   </Button>
                 ) : (
-                  <Button 
-                    className="ml-auto bg-blue-600 hover:bg-blue-700" 
-                    onClick={handleSubmit}
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? "Enviando..." : "Generar Informe"}
-                  </Button>
+                  <div className="flex gap-2 ml-auto">
+                    <Button 
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => {
+                        if (reportLinks.link_informe) {
+                          window.open(reportLinks.link_informe, '_blank');
+                        } else {
+                          toast({
+                            title: "Informe no disponible",
+                            description: "Primero debe generar el informe",
+                            variant: "destructive"
+                          });
+                        }
+                      }}
+                      disabled={!reportLinks.link_informe || isSubmitting}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Ver Informe
+                    </Button>
+                    <Button 
+                      className="bg-blue-600 hover:bg-blue-700" 
+                      onClick={handleSubmit}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? "Enviando..." : "Generar Informe"}
+                    </Button>
+                  </div>
                 )}
               </div>
             </Card>

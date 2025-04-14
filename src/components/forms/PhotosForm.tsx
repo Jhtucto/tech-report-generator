@@ -1,11 +1,8 @@
-
 import { useState, useRef } from "react";
 import { Camera, UploadIcon, XIcon, Edit2, Check, Plus, Square, ArrowUp, Type, Undo, Redo } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import ImageEditor from "@/components/ImageEditor";
 import { toast } from "@/components/ui/use-toast";
@@ -153,7 +150,6 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
             </div>
             
             <div className="flex flex-wrap gap-3 justify-center">
-              {/* Camera capture */}
               <input
                 ref={cameraInputRef}
                 type="file"
@@ -172,7 +168,6 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
                 Cámara
               </Button>
               
-              {/* File upload from gallery */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -251,7 +246,6 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
         )}
       </div>
       
-      {/* Image Editor Dialog */}
       <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
         <DialogContent className="max-w-[90vw] w-[800px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>

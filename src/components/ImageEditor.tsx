@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import { fabric } from "fabric";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { Toggle } from "@/components/ui/toggle";
 import { Input } from "@/components/ui/input";
-import { isInEnum } from "./ImageEditorUtils";
+import { isInEnum, loadImageToCanvas } from "./ImageEditorUtils";
 
 interface ImageEditorProps {
   imageFile: File;
@@ -33,6 +34,12 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
   const [textInput, setTextInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Helper function for mode comparisons
+  const isModeActive = (currentMode: string): boolean => {
+    return isInEnum(currentMode, EDITOR_MODES) && mode === currentMode;
+  };
   
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -53,35 +60,18 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
   useEffect(() => {
     if (!canvas || !imageFile) return;
     
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (!event.target?.result) return;
-      
-      fabric.Image.fromURL(event.target.result.toString(), (img) => {
-        const canvasWidth = canvas.width || 800;
-        const canvasHeight = canvas.height || 600;
-        
-        const scaleX = canvasWidth / img.width!;
-        const scaleY = canvasHeight / img.height!;
-        const scale = Math.min(scaleX, scaleY);
-        
-        img.scale(scale);
-        img.set({
-          left: (canvasWidth - img.width! * scale) / 2,
-          top: (canvasHeight - img.height! * scale) / 2,
-          selectable: false,
-          evented: false,
-        });
-        
-        canvas.clear();
-        canvas.add(img);
-        canvas.renderAll();
-        
-        saveToHistory();
-      });
-    };
+    setIsLoading(true);
     
-    reader.readAsDataURL(imageFile);
+    loadImageToCanvas(canvas, imageFile)
+      .then(() => {
+        saveToHistory();
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error("Error loading image:", err);
+        setIsLoading(false);
+      });
+      
   }, [canvas, imageFile]);
   
   useEffect(() => {
@@ -366,10 +356,6 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
       });
   };
   
-  const isModeActive = (currentMode: string): boolean => {
-    return isInEnum(currentMode, EDITOR_MODES) && mode === currentMode;
-  };
-  
   return (
     <div className="flex flex-col">
       <div className="flex flex-wrap gap-2 mb-4 justify-center">
@@ -459,6 +445,11 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
       </div>
       
       <div className="bg-gray-100 p-2 rounded-md overflow-auto flex justify-center">
+        {isLoading && (
+          <div className="absolute inset-0 bg-black/20 flex items-center justify-center z-10 rounded-md">
+            <p className="bg-white px-4 py-2 rounded-md shadow-md">Cargando imagen...</p>
+          </div>
+        )}
         <canvas ref={canvasRef} className="border border-gray-300 bg-white" />
       </div>
       
