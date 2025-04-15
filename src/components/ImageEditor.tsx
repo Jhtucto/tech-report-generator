@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import { fabric } from "fabric";
 import { Button } from "@/components/ui/button";
@@ -80,7 +81,34 @@ const ImageEditor = ({ imageFile, onSave, onCancel }: ImageEditorProps) => {
     reader.readAsDataURL(imageFile);
   }, [canvas, imageFile]);
 
-  // ... el resto del código permanece igual hasta el return
+  // Add the missing handleSave function
+  const handleSave = () => {
+    if (!canvas) return;
+
+    // Convert canvas to image blob
+    canvas.toBlob((blob) => {
+      if (blob) {
+        onSave(blob);
+      }
+    });
+  };
+  
+  // Add the saveToHistory function that was referenced but missing
+  const saveToHistory = () => {
+    if (!canvas) return;
+    
+    // Get canvas JSON
+    const json = JSON.stringify(canvas.toJSON());
+    
+    // If we're not at the end of history, truncate
+    if (historyIndex < history.length - 1) {
+      setHistory(history.slice(0, historyIndex + 1));
+    }
+    
+    // Add current state to history
+    setHistory(prev => [...prev, json]);
+    setHistoryIndex(prev => prev + 1);
+  };
 
   return (
     <div className="flex flex-col">

@@ -1,5 +1,5 @@
 
-import { Canvas, Image as FabricImage } from "fabric";
+import { fabric } from "fabric";
 
 // Type guard to check if a string is in a specific union type
 export function isInEnum<T extends string>(value: string, enumValues: readonly T[]): value is T {
@@ -13,7 +13,7 @@ export function safeCompare<T extends string>(value1: T, value2: string): boolea
 
 // Fixed image loading helper with improved error handling
 export function loadImageToCanvas(
-  canvas: Canvas, 
+  canvas: fabric.Canvas, 
   imageFile: File, 
   onLoad?: () => void
 ): Promise<void> {
@@ -39,7 +39,7 @@ export function loadImageToCanvas(
       
       img.onload = () => {
         // Create a fabric image from the loaded HTML image
-        const fabricImg = new FabricImage(img);
+        const fabricImg = new fabric.Image(img);
         
         const canvasWidth = canvas.getWidth() || 800;
         const canvasHeight = canvas.getHeight() || 600;
