@@ -1,3 +1,4 @@
+
 import { useState, useRef } from "react";
 import { Camera, UploadIcon, XIcon, Edit2, Check, Plus, Square, ArrowUp, Type, Undo, Redo } from "lucide-react";
 import { Label } from "@/components/ui/label";
@@ -111,6 +112,37 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
     openImageEditor(photo.file, index);
   };
   
+  // Function to check if camera is available
+  const checkCameraAvailability = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.some(device => device.kind === 'videoinput');
+    } catch (err) {
+      console.error("Error checking camera availability:", err);
+      return false;
+    }
+  };
+
+  // Handle camera capture with proper attributes
+  const activateCamera = async () => {
+    const hasCamera = await checkCameraAvailability();
+    
+    if (!hasCamera) {
+      toast({
+        title: "Cámara no disponible",
+        description: "No se detectó una cámara en su dispositivo o no se tiene permiso para acceder a ella.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    if (cameraInputRef.current) {
+      // Ensure the capture attribute is set for mobile devices
+      cameraInputRef.current.setAttribute('capture', 'environment');
+      cameraInputRef.current.click();
+    }
+  };
+  
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -162,7 +194,7 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
               <Button 
                 type="button" 
                 variant="outline"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={activateCamera}
                 className="flex-1 max-w-[150px]"
               >
                 <Camera className="mr-2 h-4 w-4" />

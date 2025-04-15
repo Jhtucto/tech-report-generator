@@ -23,7 +23,7 @@ const FormProgress = ({ steps, currentStep, onStepClick }: FormProgressProps) =>
         return (
           <div 
             key={index} 
-            className="flex flex-col items-center"
+            className="flex flex-col items-center relative"
             onClick={() => handleStepClick(index)}
           >
             <button
@@ -39,13 +39,6 @@ const FormProgress = ({ steps, currentStep, onStepClick }: FormProgressProps) =>
             >
               {isCompleted ? <CheckIcon className="h-4 w-4" /> : index + 1}
             </button>
-            <div
-              className={`text-xs mt-1 text-center ${
-                isCompleted || isCurrent ? "text-blue-600 font-medium" : "text-gray-400"
-              }`}
-            >
-              {step}
-            </div>
             
             {index < steps.length - 1 && (
               <div
@@ -53,10 +46,8 @@ const FormProgress = ({ steps, currentStep, onStepClick }: FormProgressProps) =>
                   index < currentStep ? "bg-blue-600" : "bg-gray-200"
                 }`}
                 style={{
-                  left: `calc(${(index + 0.5) * (100 / (steps.length - 1))}% - ${
-                    100 / (steps.length - 1) / 2
-                  }%)`,
-                  width: `calc(${100 / (steps.length - 1)}%)`,
+                  left: `calc(50% + 4px)`,
+                  width: `calc(100% - 8px)`,
                 }}
               />
             )}

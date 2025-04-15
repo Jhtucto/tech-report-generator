@@ -1,5 +1,4 @@
-
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -27,6 +26,8 @@ const FORM_STEPS = [
 ];
 
 const LOCAL_STORAGE_KEY = "report_form_data";
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000; // 2 seconds initial delay
 
 const ReportForm = () => {
   const [currentStep, setCurrentStep] = useState(0);
@@ -34,6 +35,7 @@ const ReportForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [reportLinks, setReportLinks] = useState<{ link_informe?: string; link_pdf?: string }>({});
+  const [retryCount, setRetryCount] = useState(0);
   const isMobile = useIsMobile();
   
   const [formData, setFormData] = useState(() => {
@@ -91,7 +93,7 @@ const ReportForm = () => {
   };
 
   const handleNext = () => {
-    if (!validateCurrentStep()) {
+    if (currentStep < FORM_STEPS.length - 1 && !validateCurrentStep()) {
       return;
     }
     
@@ -107,57 +109,47 @@ const ReportForm = () => {
   };
 
   const handleStepClick = (stepIndex: number) => {
-    // Check if we're trying to jump ahead and validate current step first
-    if (stepIndex > currentStep && !validateCurrentStep()) {
-      return;
-    }
-    
     setCurrentStep(stepIndex);
     setActiveTab(stepIndex.toString());
   };
 
   const validateCurrentStep = () => {
-    switch (currentStep) {
-      case 0:
-        if (!formData.cliente || !formData.fecha || !formData.proyecto || !formData.responsable) {
-          toast({
-            title: "Campos requeridos",
-            description: "Por favor complete todos los campos obligatorios.",
-            variant: "destructive",
-          });
-          return false;
-        }
-        break;
-      case 1:
-        if (!formData.marca || !formData.modelo || !formData.serie) {
-          toast({
-            title: "Campos requeridos",
-            description: "Por favor complete los campos obligatorios (marca, modelo y número de serie).",
-            variant: "destructive",
-          });
-          return false;
-        }
-        break;
-      case 2:
-        if (formData.actividades.some(act => !act.fecha || !act.descripcion)) {
-          toast({
-            title: "Actividades incompletas",
-            description: "Por favor complete todas las actividades o elimine las vacías.",
-            variant: "destructive",
-          });
-          return false;
-        }
-        break;
-      case 3:
-        if (!formData.hallazgos) {
-          toast({
-            title: "Hallazgos requeridos",
-            description: "Por favor ingrese los hallazgos técnicos.",
-            variant: "destructive",
-          });
-          return false;
-        }
-        break;
+    if (currentStep === FORM_STEPS.length - 1) {
+      if (!formData.cliente || !formData.fecha || !formData.proyecto || !formData.responsable) {
+        toast({
+          title: "Información del proyecto incompleta",
+          description: "Por favor complete todos los campos en la sección de información del proyecto.",
+          variant: "destructive",
+        });
+        return false;
+      }
+      
+      if (!formData.marca || !formData.modelo || !formData.serie) {
+        toast({
+          title: "Datos del equipo incompletos",
+          description: "Por favor complete los campos obligatorios en la sección de datos del equipo.",
+          variant: "destructive",
+        });
+        return false;
+      }
+      
+      if (formData.actividades.some(act => !act.fecha || !act.descripcion)) {
+        toast({
+          title: "Actividades incompletas",
+          description: "Por favor complete todas las actividades o elimine las vacías.",
+          variant: "destructive",
+        });
+        return false;
+      }
+      
+      if (!formData.hallazgos) {
+        toast({
+          title: "Hallazgos requeridos",
+          description: "Por favor ingrese los hallazgos técnicos.",
+          variant: "destructive",
+        });
+        return false;
+      }
     }
     return true;
   };
@@ -169,6 +161,86 @@ const ReportForm = () => {
     }
   };
 
+  const retrySubmission = useCallback((formDataToSend: FormData, webhookUrl: string) => {
+    const currentRetry = retryCount + 1;
+    if (currentRetry <= MAX_RETRIES) {
+      const delay = RETRY_DELAY * Math.pow(2, currentRetry - 1);
+      
+      toast({
+        title: "Reintentando envío",
+        description: `Intento ${currentRetry} de ${MAX_RETRIES}. Espere por favor...`,
+      });
+      
+      setRetryCount(currentRetry);
+      
+      setTimeout(() => {
+        sendFormData(formDataToSend, webhookUrl);
+      }, delay);
+    } else {
+      setIsSubmitting(false);
+      setRetryCount(0);
+      toast({
+        title: "Error en la generación",
+        description: "No se pudo generar el informe después de varios intentos. El servidor podría estar sobrecargado o sin conexión. Por favor intente más tarde.",
+        variant: "destructive",
+      });
+    }
+  }, [retryCount]);
+
+  const sendFormData = useCallback((formDataToSend: FormData, webhookUrl: string) => {
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(progress);
+      }
+    };
+    
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const responseData = JSON.parse(xhr.responseText);
+          
+          if (!responseData.link_informe && !responseData.link_pdf) {
+            console.error("Response missing document links:", responseData);
+            retrySubmission(formDataToSend, webhookUrl);
+            return;
+          }
+          
+          setReportLinks(responseData);
+          setRetryCount(0);
+          
+          toast({
+            title: "Informe generado con éxito",
+            description: "Se han generado los enlaces a su informe",
+          });
+        } catch (error) {
+          console.error("Error parsing response:", error);
+          retrySubmission(formDataToSend, webhookUrl);
+        }
+      } else {
+        console.error("Server error:", xhr.status, xhr.statusText);
+        retrySubmission(formDataToSend, webhookUrl);
+      }
+      setIsSubmitting(false);
+    };
+    
+    xhr.onerror = () => {
+      console.error("Network error");
+      retrySubmission(formDataToSend, webhookUrl);
+    };
+    
+    xhr.timeout = 30000; // 30 seconds timeout
+    xhr.ontimeout = () => {
+      console.error("Request timed out");
+      retrySubmission(formDataToSend, webhookUrl);
+    };
+    
+    xhr.open("POST", webhookUrl);
+    xhr.send(formDataToSend);
+  }, [retrySubmission]);
+
   const handleSubmit = async () => {
     if (!validateCurrentStep()) {
       return;
@@ -176,6 +248,7 @@ const ReportForm = () => {
     
     setIsSubmitting(true);
     setUploadProgress(0);
+    setRetryCount(0);
     
     try {
       const formDataToSend = new FormData();
@@ -196,65 +269,20 @@ const ReportForm = () => {
       
       const webhookUrl = "https://your-n8n-webhook-url.com";
       
-      const xhr = new XMLHttpRequest();
+      toast({
+        title: "Preparando documento",
+        description: "Espere mientras preparamos su informe...",
+      });
       
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          setUploadProgress(progress);
-        }
-      };
-      
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const responseData = JSON.parse(xhr.responseText);
-            setReportLinks(responseData);
-            
-            toast({
-              title: "Informe generado con éxito",
-              description: "Se han generado los enlaces a su informe",
-            });
-          } catch (error) {
-            console.error("Error parsing response:", error);
-            toast({
-              title: "Error en la respuesta",
-              description: "El servidor respondió, pero hubo un problema al procesar la respuesta.",
-              variant: "destructive",
-            });
-          }
-        } else {
-          console.error("Server error:", xhr.statusText);
-          toast({
-            title: `Error ${xhr.status}`,
-            description: "Hubo un problema al generar el informe. Por favor intente nuevamente.",
-            variant: "destructive",
-          });
-        }
-        setIsSubmitting(false);
-      };
-      
-      xhr.onerror = () => {
-        console.error("Network error");
-        toast({
-          title: "Error de conexión",
-          description: "No se pudo conectar con el servidor. Verifique su conexión a internet.",
-          variant: "destructive",
-        });
-        setIsSubmitting(false);
-      };
-      
-      // This timeout is to ensure the document is ready before generating PDF
       setTimeout(() => {
-        xhr.open("POST", webhookUrl);
-        xhr.send(formDataToSend);
-      }, 1000);
+        sendFormData(formDataToSend, webhookUrl);
+      }, 3000);
       
     } catch (error) {
       console.error("Error submitting form:", error);
       toast({
-        title: "Error",
-        description: "Hubo un problema al generar el informe. Por favor intente nuevamente.",
+        title: "Error de preparación",
+        description: "Hubo un problema al preparar los datos del informe. Por favor intente nuevamente.",
         variant: "destructive",
       });
       setIsSubmitting(false);
@@ -327,7 +355,11 @@ const ReportForm = () => {
               
               {isSubmitting && (
                 <div className="mt-4 mb-4">
-                  <p className="text-sm text-gray-500 mb-2">Enviando datos... {uploadProgress}%</p>
+                  <p className="text-sm text-gray-500 mb-2">
+                    {retryCount > 0 
+                      ? `Reintentando (${retryCount}/${MAX_RETRIES})... ${uploadProgress}%` 
+                      : `Enviando datos... ${uploadProgress}%`}
+                  </p>
                   <Progress value={uploadProgress} className="w-full" />
                 </div>
               )}

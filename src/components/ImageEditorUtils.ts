@@ -11,7 +11,7 @@ export function safeCompare<T extends string>(value1: T, value2: string): boolea
   return value1 === value2;
 }
 
-// Image loading helper
+// Image loading helper with improved error handling
 export function loadImageToCanvas(
   canvas: Canvas, 
   imageFile: File, 
@@ -28,29 +28,40 @@ export function loadImageToCanvas(
       
       const dataUrl = event.target.result.toString();
       
-      Image.fromURL(dataUrl, (img) => {
-        const canvasWidth = canvas.width || 800;
-        const canvasHeight = canvas.height || 600;
-        
-        const scaleX = canvasWidth / img.width!;
-        const scaleY = canvasHeight / img.height!;
-        const scale = Math.min(scaleX, scaleY);
-        
-        img.scale(scale);
-        img.set({
-          left: (canvasWidth - img.width! * scale) / 2,
-          top: (canvasHeight - img.height! * scale) / 2,
-          selectable: false,
-          evented: false,
+      // Preload the image to check for errors
+      const img = new window.Image();
+      img.onload = () => {
+        // Now load into fabric after we know the image is valid
+        Image.fromURL(dataUrl, (fabricImg) => {
+          const canvasWidth = canvas.width || 800;
+          const canvasHeight = canvas.height || 600;
+          
+          const scaleX = canvasWidth / fabricImg.width!;
+          const scaleY = canvasHeight / fabricImg.height!;
+          const scale = Math.min(scaleX, scaleY);
+          
+          fabricImg.scale(scale);
+          fabricImg.set({
+            left: (canvasWidth - fabricImg.width! * scale) / 2,
+            top: (canvasHeight - fabricImg.height! * scale) / 2,
+            selectable: false,
+            evented: false,
+          });
+          
+          canvas.clear();
+          canvas.add(fabricImg);
+          canvas.renderAll();
+          
+          if (onLoad) onLoad();
+          resolve();
         });
-        
-        canvas.clear();
-        canvas.add(img);
-        canvas.renderAll();
-        
-        if (onLoad) onLoad();
-        resolve();
-      });
+      };
+      
+      img.onerror = () => {
+        reject(new Error("Error loading image"));
+      };
+      
+      img.src = dataUrl;
     };
     
     reader.onerror = () => {
