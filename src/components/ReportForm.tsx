@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -28,6 +29,7 @@ const FORM_STEPS = [
 const LOCAL_STORAGE_KEY = "report_form_data";
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000; // 2 seconds initial delay
+const WEBHOOK_URL = "https://hook.eu1.make.com/abcd1234"; // Placeholder URL - replace with actual URL
 
 const ReportForm = () => {
   const [currentStep, setCurrentStep] = useState(0);
@@ -36,6 +38,7 @@ const ReportForm = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [reportLinks, setReportLinks] = useState<{ link_informe?: string; link_pdf?: string }>({});
   const [retryCount, setRetryCount] = useState(0);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
   const isMobile = useIsMobile();
   
   const [formData, setFormData] = useState(() => {
@@ -77,6 +80,15 @@ const ReportForm = () => {
     };
   });
 
+  // Add a cleanup effect for the fetch request
+  useEffect(() => {
+    return () => {
+      if (abortController) {
+        abortController.abort();
+      }
+    };
+  }, [abortController]);
+
   const updateFormData = (data: Partial<typeof formData>) => {
     const newFormData = { ...formData, ...data };
     setFormData(newFormData);
@@ -93,10 +105,6 @@ const ReportForm = () => {
   };
 
   const handleNext = () => {
-    if (currentStep < FORM_STEPS.length - 1 && !validateCurrentStep()) {
-      return;
-    }
-    
     const nextStep = Math.min(currentStep + 1, FORM_STEPS.length - 1);
     setCurrentStep(nextStep);
     setActiveTab(nextStep.toString());
@@ -161,88 +169,109 @@ const ReportForm = () => {
     }
   };
 
-  const retrySubmission = useCallback((formDataToSend: FormData, webhookUrl: string) => {
-    const currentRetry = retryCount + 1;
-    if (currentRetry <= MAX_RETRIES) {
-      const delay = RETRY_DELAY * Math.pow(2, currentRetry - 1);
+  // Fix: Completely rewrite the submission function with proper cancellation
+  const sendFormData = useCallback(async (formDataToSend: FormData) => {
+    try {
+      // Create a new AbortController for this request
+      const controller = new AbortController();
+      setAbortController(controller);
       
-      toast({
-        title: "Reintentando envío",
-        description: `Intento ${currentRetry} de ${MAX_RETRIES}. Espere por favor...`,
+      // Set a timeout to abort after 45 seconds to prevent infinite waiting
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        throw new Error("Tiempo de espera agotado");
+      }, 45000);
+      
+      setUploadProgress(10); // Show initial progress
+      
+      const response = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        body: formDataToSend,
+        signal: controller.signal
       });
       
-      setRetryCount(currentRetry);
+      clearTimeout(timeoutId);
       
-      setTimeout(() => {
-        sendFormData(formDataToSend, webhookUrl);
-      }, delay);
-    } else {
-      setIsSubmitting(false);
+      if (!response.ok) {
+        throw new Error(`Error del servidor: ${response.status}`);
+      }
+      
+      setUploadProgress(90);
+      
+      const responseData = await response.json();
+      
+      if (!responseData.link_informe && !responseData.link_pdf) {
+        throw new Error("Respuesta sin enlaces al documento");
+      }
+      
+      setUploadProgress(100);
+      setReportLinks(responseData);
       setRetryCount(0);
+      
       toast({
-        title: "Error en la generación",
-        description: "No se pudo generar el informe después de varios intentos. El servidor podría estar sobrecargado o sin conexión. Por favor intente más tarde.",
-        variant: "destructive",
+        title: "Informe generado con éxito",
+        description: "Se han generado los enlaces a su informe",
       });
+      
+      return true;
+    } catch (error) {
+      // Handle specific error types
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          toast({
+            title: "Tiempo de espera agotado",
+            description: "La generación del informe está tomando demasiado tiempo. Por favor intente más tarde.",
+            variant: "destructive",
+          });
+        } else {
+          console.error("Error en la generación:", error.message);
+          
+          // If we haven't exceeded max retries, try again
+          if (retryCount < MAX_RETRIES) {
+            const newRetryCount = retryCount + 1;
+            setRetryCount(newRetryCount);
+            
+            const delay = RETRY_DELAY * Math.pow(2, newRetryCount - 1);
+            
+            toast({
+              title: "Reintentando envío",
+              description: `Intento ${newRetryCount} de ${MAX_RETRIES}. Espere por favor...`,
+            });
+            
+            // Wait and try again
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return sendFormData(formDataToSend);
+          } else {
+            toast({
+              title: "Error en la generación",
+              description: "No se pudo generar el informe después de varios intentos. El servidor podría estar sobrecargado o sin conexión. Por favor intente más tarde.",
+              variant: "destructive",
+            });
+          }
+        }
+      }
+      
+      return false;
+    } finally {
+      setAbortController(null);
+      setIsSubmitting(false);
     }
   }, [retryCount]);
 
-  const sendFormData = useCallback((formDataToSend: FormData, webhookUrl: string) => {
-    const xhr = new XMLHttpRequest();
-    
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const progress = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(progress);
-      }
-    };
-    
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const responseData = JSON.parse(xhr.responseText);
-          
-          if (!responseData.link_informe && !responseData.link_pdf) {
-            console.error("Response missing document links:", responseData);
-            retrySubmission(formDataToSend, webhookUrl);
-            return;
-          }
-          
-          setReportLinks(responseData);
-          setRetryCount(0);
-          
-          toast({
-            title: "Informe generado con éxito",
-            description: "Se han generado los enlaces a su informe",
-          });
-        } catch (error) {
-          console.error("Error parsing response:", error);
-          retrySubmission(formDataToSend, webhookUrl);
-        }
-      } else {
-        console.error("Server error:", xhr.status, xhr.statusText);
-        retrySubmission(formDataToSend, webhookUrl);
-      }
-      setIsSubmitting(false);
-    };
-    
-    xhr.onerror = () => {
-      console.error("Network error");
-      retrySubmission(formDataToSend, webhookUrl);
-    };
-    
-    xhr.timeout = 30000; // 30 seconds timeout
-    xhr.ontimeout = () => {
-      console.error("Request timed out");
-      retrySubmission(formDataToSend, webhookUrl);
-    };
-    
-    xhr.open("POST", webhookUrl);
-    xhr.send(formDataToSend);
-  }, [retrySubmission]);
-
   const handleSubmit = async () => {
     if (!validateCurrentStep()) {
+      return;
+    }
+    
+    // If already submitting, allow cancellation
+    if (isSubmitting && abortController) {
+      abortController.abort();
+      setIsSubmitting(false);
+      setUploadProgress(0);
+      toast({
+        title: "Envío cancelado",
+        description: "La generación del informe ha sido cancelada.",
+      });
       return;
     }
     
@@ -267,16 +296,20 @@ const ReportForm = () => {
         }));
       });
       
-      const webhookUrl = "https://your-n8n-webhook-url.com";
-      
       toast({
         title: "Preparando documento",
         description: "Espere mientras preparamos su informe...",
       });
       
-      setTimeout(() => {
-        sendFormData(formDataToSend, webhookUrl);
-      }, 3000);
+      // Small delay to ensure UI is updated before starting the network request
+      setTimeout(async () => {
+        const success = await sendFormData(formDataToSend);
+        
+        if (!success) {
+          setIsSubmitting(false);
+          setUploadProgress(0);
+        }
+      }, 500);
       
     } catch (error) {
       console.error("Error submitting form:", error);
@@ -412,11 +445,11 @@ const ReportForm = () => {
                       Ver Informe
                     </Button>
                     <Button 
-                      className="bg-blue-600 hover:bg-blue-700" 
+                      className={isSubmitting ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"} 
                       onClick={handleSubmit}
-                      disabled={isSubmitting}
+                      disabled={false}
                     >
-                      {isSubmitting ? "Enviando..." : "Generar Informe"}
+                      {isSubmitting ? "Cancelar envío" : "Generar Informe"}
                     </Button>
                   </div>
                 )}

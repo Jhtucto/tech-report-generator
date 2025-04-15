@@ -1,5 +1,5 @@
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Camera, UploadIcon, XIcon, Edit2, Check, Plus, Square, ArrowUp, Type, Undo, Redo } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -25,8 +25,25 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
   const [comentario, setComentario] = useState("");
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [currentEditingImage, setCurrentEditingImage] = useState<{ file: File, index: number | null }>({ file: new File([], ""), index: null });
+  const [cameraAvailable, setCameraAvailable] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  
+  // Check if camera is available on component mount
+  useEffect(() => {
+    const checkCamera = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasCamera = devices.some(device => device.kind === 'videoinput');
+        setCameraAvailable(hasCamera);
+      } catch (err) {
+        console.error("Error checking camera availability:", err);
+        setCameraAvailable(false);
+      }
+    };
+    
+    checkCamera();
+  }, []);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -45,6 +62,11 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
       
       // Reset the file input
       e.target.value = "";
+      
+      toast({
+        title: "Imágenes agregadas",
+        description: `Se agregaron ${newPhotos.length} imagen(es) correctamente.`
+      });
     }
   };
   
@@ -112,22 +134,9 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
     openImageEditor(photo.file, index);
   };
   
-  // Function to check if camera is available
-  const checkCameraAvailability = async () => {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      return devices.some(device => device.kind === 'videoinput');
-    } catch (err) {
-      console.error("Error checking camera availability:", err);
-      return false;
-    }
-  };
-
-  // Handle camera capture with proper attributes
-  const activateCamera = async () => {
-    const hasCamera = await checkCameraAvailability();
-    
-    if (!hasCamera) {
+  // Fixed camera capture function
+  const activateCamera = () => {
+    if (!cameraAvailable) {
       toast({
         title: "Cámara no disponible",
         description: "No se detectó una cámara en su dispositivo o no se tiene permiso para acceder a ella.",
@@ -137,8 +146,6 @@ const PhotosForm = ({ data, updateData }: PhotosFormProps) => {
     }
     
     if (cameraInputRef.current) {
-      // Ensure the capture attribute is set for mobile devices
-      cameraInputRef.current.setAttribute('capture', 'environment');
       cameraInputRef.current.click();
     }
   };
